@@ -48,25 +48,28 @@ function validateConfig() {
 }
 validateConfig();
 
-// ─── Mapeo de Modelos (Los "Fieles" que respetan prompts) ─────────────────────
+// ─── Mapeo de Modelos (Versión Ultra-Rápida y Fiel) ────────────────────────
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/nemotron-3-super-120b-a12b',
-  'gpt-4': 'nvidia/nemotron-3-ultra-550b-a55b',
-  'gpt-3.5': 'qwen/qwen3.5-397b-a17b',
-  'gpt-4-turbo': 'moonshotai/kimi-k2.6',
-  'gpt-4o': 'deepseek-ai/deepseek-v4-pro',
-  'claude-3-opus': 'openai/gpt-oss-120b',
-  'claude-3-sonnet': 'openai/gpt-oss-20b',
-  'gemini-pro': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gpt-3.5-turbo': 'meta/llama-3.1-8b-instruct',
+  'gpt-4': 'meta/llama-3.1-70b-instruct',
+  'gpt-3.5': 'meta/llama-3.1-8b-instruct',
+  'gpt-4-turbo': 'meta/llama-3.1-70b-instruct',
+  'gpt-4o': 'meta/llama-3.3-70b-instruct',
+  'claude-3-opus': 'meta/llama-3.1-70b-instruct',
+  'claude-3-sonnet': 'meta/llama-3.1-8b-instruct',
+  'gemini-pro': 'meta/llama-3.3-70b-instruct',
   'gemini-turbo': 'meta/llama-3.3-70b-instruct',
-  'mistral': 'mistralai/mistral-large-3-675b-instruct-2512',
-  'mistral-turbo': 'mistralai/mistral-medium-3.5-128b',
-  'mistral-pro': 'mistralai/mistral-small-4-119b-2603',
-  'mistral-nemo': 'mistralai/mistral-nemotron',
-  'google-light': 'google/gemma-4-31b-it',
-  'm2.7': 'minimaxai/minimax-m2.7',
-  'm3': 'minimaxai/minimax-m3'
+  'mistral': 'meta/llama-3.1-70b-instruct',
+  'mistral-turbo': 'meta/llama-3.1-8b-instruct',
+  'google-light': 'google/gemma-4-31b-it'
 };
+
+const FALLBACK_MODELS = [
+  'meta/llama-3.1-8b-instruct',
+  'meta/llama-3.3-70b-instruct',
+  'google/gemma-4-31b-it'
+];
+
 
 const FALLBACK_MODELS = [
   'mistralai/mistral-medium-3.5-128b',
