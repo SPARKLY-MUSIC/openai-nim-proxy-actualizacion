@@ -1,4 +1,4 @@
-// server.js — Robust Hybrid OpenAI ↔ NIM Proxy (Fast, Stable & Prompt-Compliant)
+// server.js — Stable & Fast OpenAI ↔ NIM Proxy
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -15,17 +15,9 @@ const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.c
 const NIM_API_KEY = process.env.NIM_API_KEY;
 const CLIENT_AUTH_KEY = process.env.CLIENT_AUTH_KEY;
 
-const SHOW_REASONING = process.env.SHOW_REASONING === 'true';
-const ENABLE_THINKING_MODE = process.env.ENABLE_THINKING_MODE === 'true';
-const SKIP_VALIDATION = process.env.SKIP_VALIDATION === 'true';
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-
 const MAX_TOKENS_LIMIT = 65536;
-const REQUEST_TIMEOUT_MS = 60000; // Timeout optimizado para velocidad
-const VALIDATION_TIMEOUT_MS = 10000;
-const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
+const REQUEST_TIMEOUT_MS = 60000; 
 
-// Agent de red para reutilizar conexiones y acelerar la respuesta drásticamente
 const keepAliveAgent = new https.Agent({
   keepAlive: true,
   maxSockets: 50,
@@ -37,44 +29,27 @@ const nim = axios.create({
   httpsAgent: keepAliveAgent
 });
 
-if (SHOW_REASONING) console.log('[CONFIG] Reasoning display: ENABLED');
-if (ENABLE_THINKING_MODE) console.log('[CONFIG] Thinking mode: ENABLED');
-
 // ─── Config validation ──────────────────────────────────────────────────────
 
 function validateConfig() {
-  const fatal = (msg) => { console.error(`[FATAL] ${msg}`); process.exit(1); };
-  if (!NIM_API_KEY) fatal('NIM_API_KEY is required. Get one at https://build.nvidia.com/');
-  if (!CLIENT_AUTH_KEY) {
-    console.warn('[WARN] CLIENT_AUTH_KEY not set. All requests will be rejected with 403.');
+  if (!NIM_API_KEY) {
+    console.error('[FATAL] NIM_API_KEY is required.');
+    process.exit(1);
   }
 }
 validateConfig();
 
-// ─── Model Mapping (Modelos rápidos y estables que respetan contexto) ────────
+// ─── Model Mapping (Modelo único ultra-estable para evitar errores 500) ─────
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'meta/llama-3.1-8b-instruct',
-  'gpt-4': 'meta/llama-3.1-70b-instruct',
-  'gpt-3.5': 'meta/llama-3.1-8b-instruct',
-  'gpt-4-turbo': 'meta/llama-3.1-70b-instruct',
-  'gpt-4o': 'meta/llama-3.3-70b-instruct',
-  'claude-3-opus': 'meta/llama-3.1-70b-instruct',
-  'claude-3-sonnet': 'meta/llama-3.1-8b-instruct',
-  'gemini-pro': 'meta/llama-3.3-70b-instruct',
-  'gemini-turbo': 'meta/llama-3.3-70b-instruct',
-  'gpt-3.5o': 'meta/llama-3.1-8b-instruct',
-  'gpt-4-flash': 'meta/llama-3.1-8b-instruct',
-  'mistral': 'meta/llama-3.1-70b-instruct',
-  'mistral-turbo': 'meta/llama-3.1-8b-instruct',
-  'google-light': 'google/gemma-4-31b-it'
+  'gpt-4': 'meta/llama-3.1-8b-instruct',
+  'gpt-4o': 'meta/llama-3.1-8b-instruct',
+  'claude-3-opus': 'meta/llama-3.1-8b-instruct',
+  'gemini-pro': 'meta/llama-3.1-8b-instruct'
 };
 
-const FALLBACK_MODELS = [
-  'meta/llama-3.1-8b-instruct',
-  'meta/llama-3.3-70b-instruct',
-  'google/gemma-4-31b-it'
-];
+const TARGET_MODEL = 'meta/llama-3.1-8b-instruct';
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
 
@@ -103,14 +78,7 @@ app.use((req, res, next) => {
   }
 
   const token = extractBearerToken(req.headers.authorization);
-  
-  if (!token || !CLIENT_AUTH_KEY) {
-    return res.status(403).json({
-      error: { message: 'Forbidden: Invalid or missing authentication', type: 'authentication_error', code: 403 }
-    });
-  }
-
-  if (!safeTimingEqual(token, CLIENT_AUTH_KEY)) {
+  if (!token || !CLIENT_AUTH_KEY || !safeTimingEqual(token, CLIENT_AUTH_KEY)) {
     return res.status(403).json({
       error: { message: 'Forbidden: Invalid authentication credentials', type: 'authentication_error', code: 403 }
     });
@@ -118,20 +86,6 @@ app.use((req, res, next) => {
 
   next();
 });
-
-// ─── Validation ─────────────────────────────────────────────────────────────
-
-async function validateModels() {
-  if (SKIP_VALIDATION) return;
-  try {
-    await nim.get('/models', {
-      headers: { Authorization: `Bearer ${NIM_API_KEY}` },
-      timeout: VALIDATION_TIMEOUT_MS
-    });
-  } catch (err) {
-    console.warn(`[VALIDATION] Skipped: ${err.message}`);
-  }
-}
 
 // ─── Helper: Safe Stream Writing ───────────────────────────────────────────
 
@@ -147,45 +101,10 @@ function safeWrite(res, data) {
   return false;
 }
 
-// ─── Helper: Fallback Chain ─────────────────────────────────────────────────
-
-async function callWithFallback(baseRequest, models) {
-  let lastError = null;
-
-  for (const model of models) {
-    try {
-      const res = await nim.post(
-        '/chat/completions',
-        { ...baseRequest, model },
-        {
-          headers: {
-            Authorization: `Bearer ${NIM_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          responseType: baseRequest.stream ? 'stream' : 'json',
-          timeout: REQUEST_TIMEOUT_MS
-        }
-      );
-
-      return { response: res, model };
-
-    } catch (err) {
-      lastError = err;
-      console.warn(
-        `[FALLBACK] Model failed: ${model}`,
-        err.response?.status,
-        err.response?.data?.error?.message || err.message
-      );
-    }
-  }
-
-  throw lastError || new Error('All models failed');
-}
-
 // ─── Routes ────────────────────────────────────────────────────────────────
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '2.2.0-fast-compliant' });
+  res.json({ status: 'ok', version: '2.3.0-bulletproof' });
 });
 
 app.get('/v1/models', (req, res) => {
@@ -201,35 +120,29 @@ app.get('/v1/models', (req, res) => {
 });
 
 app.post('/v1/chat/completions', async (req, res) => {
-  let streamEndedCleanly = false;
   let upstreamStream = null;
 
   try {
-    const {
-      model,
-      messages,
-      temperature,
-      max_tokens,
-      stream
-    } = req.body;
+    const { model, messages, temperature, max_tokens, stream } = req.body;
 
-    const primaryModel = MODEL_MAPPING[model] || 'meta/llama-3.1-8b-instruct';
-    const modelChain = [primaryModel, ...FALLBACK_MODELS];
-
-    // Payload limpio y directo para que el modelo lea el historial y prompts sin alteraciones
     const baseRequest = {
+      model: MODEL_MAPPING[model] || TARGET_MODEL,
       messages,
       temperature: temperature ?? 0.7,
       max_tokens: Math.min(max_tokens ?? 2048, MAX_TOKENS_LIMIT),
-      stream: stream || false,
-      extra_body: ENABLE_THINKING_MODE
-        ? { chat_template_kwargs: { thinking: true } }
-        : undefined
+      stream: stream || false
     };
 
-    const { response, model: usedModel } = await callWithFallback(baseRequest, modelChain);
+    const response = await nim.post('/chat/completions', baseRequest, {
+      headers: {
+        Authorization: `Bearer ${NIM_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      responseType: stream ? 'stream' : 'json',
+      timeout: REQUEST_TIMEOUT_MS
+    });
+
     upstreamStream = response.data;
-    console.log('[PROXY] Model used:', usedModel);
 
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -239,95 +152,43 @@ app.post('/v1/chat/completions', async (req, res) => {
       const decoder = new StringDecoder('utf8');
       let buffer = '';
       let doneSent = false;
-      let cleanedUp = false;
-
-      const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        if (upstreamStream) upstreamStream.removeAllListeners();
-        req.removeAllListeners('close');
-      };
 
       const processLine = (line) => {
         if (!line.startsWith('data: ')) return;
-
         if (line.includes('[DONE]')) {
           if (!doneSent) {
             safeWrite(res, 'data: [DONE]\n\n');
             doneSent = true;
           }
-          streamEndedCleanly = true;
           return;
         }
-
         try {
           const data = JSON.parse(line.slice(6));
-          const delta = data.choices?.[0]?.delta;
-
-          if (delta && delta.reasoning_content) {
-            delete delta.reasoning_content;
+          if (data.choices?.[0]?.delta?.reasoning_content) {
+            delete data.choices[0].delta.reasoning_content;
           }
-
           safeWrite(res, `data: ${JSON.stringify(data)}\n\n`);
-
-        } catch (parseErr) {
-          console.warn('[STREAM] Invalid JSON line:', line.slice(0, 100));
-        }
+        } catch {}
       };
 
       upstreamStream.on('data', chunk => {
         buffer += decoder.write(chunk);
-
-        if (buffer.length > MAX_BUFFER_SIZE) {
-          safeWrite(res, 'data: [DONE]\n\n');
-          res.end();
-          upstreamStream.destroy();
-          cleanup();
-          return;
-        }
-
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          processLine(line);
-        }
+        for (const line of lines) processLine(line);
       });
 
       upstreamStream.on('end', () => {
-        buffer += decoder.end();
-
-        if (buffer.trim()) {
-          for (const line of buffer.split('\n')) {
-            processLine(line);
-          }
-        }
-
-        if (!doneSent) {
-          safeWrite(res, 'data: [DONE]\n\n');
-        }
-
-        streamEndedCleanly = true;
-        if (!res.writableEnded) {
-          res.end();
-        }
-        cleanup();
+        if (!doneSent) safeWrite(res, 'data: [DONE]\n\n');
+        if (!res.writableEnded) res.end();
       });
 
-      upstreamStream.on('error', err => {
-        console.error('[STREAM] Upstream error:', err.message);
-        if (!res.writableEnded) {
-          safeWrite(res, 'data: [DONE]\n\n');
-          res.end();
-        }
-        cleanup();
+      upstreamStream.on('error', () => {
+        if (!res.writableEnded) res.end();
       });
 
       req.on('close', () => {
-        if (upstreamStream && !upstreamStream.destroyed && !streamEndedCleanly) {
-          upstreamStream.destroy();
-        }
-        cleanup();
+        if (upstreamStream && !upstreamStream.destroyed) upstreamStream.destroy();
       });
 
     } else {
@@ -340,32 +201,23 @@ app.post('/v1/chat/completions', async (req, res) => {
           index: i,
           message: {
             role: choice.message?.role || 'assistant',
-            content: choice.message?.content || '',
-            tool_calls: choice.message?.tool_calls
+            content: choice.message?.content || ''
           },
           finish_reason: choice.finish_reason || 'stop'
         })),
-        usage: response.data.usage || {
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0
-        }
+        usage: response.data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
       };
 
       res.json(openaiResponse);
     }
 
   } catch (error) {
-    console.error('[PROXY] Fatal error:', error.message);
+    console.error('[PROXY] Error:', error.response?.data || error.message);
     if (!res.headersSent) {
       res.status(error.response?.status || 500).json({
-        error: { message: error.message, type: 'invalid_request_error', code: error.response?.status || 500 }
+        error: { message: error.response?.data?.error?.message || error.message, type: 'api_error', code: error.response?.status || 500 }
       });
-    } else if (!res.writableEnded) {
-      safeWrite(res, 'data: [DONE]\n\n');
-      res.end();
     }
-
     if (upstreamStream && !upstreamStream.destroyed) {
       upstreamStream.destroy();
     }
@@ -373,12 +225,9 @@ app.post('/v1/chat/completions', async (req, res) => {
 });
 
 app.use((req, res) => {
-  res.status(404).json({
-    error: { message: `Endpoint ${req.method} ${req.path} not found`, type: 'invalid_request_error', code: 404 }
-  });
+  res.status(404).json({ error: { message: 'Not found', type: 'invalid_request_error', code: 404 } });
 });
 
 app.listen(PORT, () => {
-  console.log(`[PROXY] Fast & compliant proxy running on port ${PORT}`);
-  validateModels().catch(() => {});
+  console.log(`[PROXY] Running on port ${PORT}`);
 });
