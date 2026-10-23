@@ -1,4 +1,4 @@
-// server.js — Robust Hybrid OpenAI ↔ NIM Proxy (Optimized for Speed)
+// server.js — Robust Hybrid OpenAI ↔ NIM Proxy (Optimized & Updated)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -31,22 +31,22 @@ function validateConfig() {
 }
 validateConfig();
 
-// ─── Model Mapping (Optimizado y Rápido) ───────────────────────────────────
+// ─── Model Mapping (Actualizado con modelos estables de NVIDIA NIM) ────────
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-nano-8b-v1',
-  'gpt-4': 'deepseek-ai/deepseek-v3.2',
-  'gpt-4-turbo': 'deepseek-ai/deepseek-v3.1',
-  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
-  'claude-3-opus': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-  'claude-3-sonnet': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking',
-  'deepseek': 'deepseek-ai/deepseek-v3.1',
+  'gpt-3.5-turbo': 'meta/llama-3.1-8b-instruct',
+  'gpt-4': 'meta/llama-3.1-70b-instruct',
+  'gpt-4-turbo': 'meta/llama-3.1-405b-instruct',
+  'gpt-4o': 'meta/llama-3.1-70b-instruct',
+  'claude-3-opus': 'meta/llama-3.1-405b-instruct',
+  'claude-3-sonnet': 'meta/llama-3.1-70b-instruct',
+  'gemini-pro': 'meta/llama-3.1-70b-instruct',
+  'deepseek': 'meta/llama-3.1-70b-instruct',
   'llama-70b': 'meta/llama-3.1-70b-instruct'
 };
 
 const FALLBACK_MODELS = [
-  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'deepseek-ai/deepseek-v3.1'
+  'meta/llama-3.1-70b-instruct',
+  'meta/llama-3.1-8b-instruct'
 ];
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ async function callWithFallback(baseRequest, models) {
 
 // ─── Routes ────────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '2.2.0-fast' });
+  res.json({ status: 'ok', version: '2.3.0-stable' });
 });
 
 app.get('/v1/models', (req, res) => {
@@ -149,19 +149,19 @@ app.post('/v1/chat/completions', async (req, res) => {
   let upstreamStream = null;
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
-    const primaryModel = MODEL_MAPPING[model] || 'nvidia/llama-3.3-nemotron-super-49b-v1.5';
+    const primaryModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
     const modelChain = [primaryModel, ...FALLBACK_MODELS];
     
     const baseRequest = {
       messages,
       temperature: temperature ?? 0.7,
       max_tokens: Math.min(max_tokens ?? 2048, MAX_TOKENS_LIMIT),
-      stream: stream || false,
-      extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined
+      stream: stream || false
     };
 
     const { response, model: usedModel } = await callWithFallback(baseRequest, modelChain);
     upstreamStream = response.data;
+    console.log('[PROXY] Model used:', usedModel);
 
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -186,11 +186,11 @@ app.post('/v1/chat/completions', async (req, res) => {
           const data = JSON.parse(line.slice(6));
           const delta = data.choices?.[0]?.delta;
           if (delta && delta.reasoning_content) {
-            delete delta.reasoning_content; // Evita bloqueos de buffer por razonamiento oculto pesado
+            delete delta.reasoning_content;
           }
           safeWrite(res, `data: ${JSON.stringify(data)}\n\n`);
         } catch (parseErr) {
-          // Ignorar chunks corruptos menores para mantener velocidad
+          // Ignorar chunks corruptos menores
         }
       };
 
@@ -249,5 +249,5 @@ app.use((req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[PROXY] Fast Hybrid proxy running on port ${PORT}`);
+  console.log(`[PROXY] Stable proxy running on port ${PORT}`);
 });
