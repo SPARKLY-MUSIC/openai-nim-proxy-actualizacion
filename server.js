@@ -69,7 +69,8 @@ const MODEL_MAPPING = {
   'glm-flash': 'z-ai/glm-5.3-flash',
   'mistral': 'openai/gpt-oss-20b',
   'mistral-turbo': 'z-ai/glm-5.3-flash',
-  'google-light': 'google/gemma-4-31b-it'
+  'google-light': 'google/gemma-4-31b-it',
+  'kimi-k2.6': 'moonshotai/kimi-k2.6'
 };
 
 const FALLBACK_MODELS = [
