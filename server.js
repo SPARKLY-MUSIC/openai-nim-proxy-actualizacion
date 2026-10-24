@@ -65,39 +65,32 @@ validateConfig();
 // This mapping is what makes the server faithful. Speed comes from the plumbing,
 // not from dumbing down the models.
 
+// ─── Model Mapping (Modelos estables y activos) ────────────────────────────
+
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/nemotron-3-super-120b-a12b',
-  'gpt-4': 'nvidia/nemotron-3-ultra-550b-a55b',
-  'gpt-3.5': 'qwen/qwen3.5-397b-a17b',
-  'gpt-4-turbo': 'moonshotai/kimi-k2.6',
-  'gpt-4o': 'deepseek-ai/deepseek-v4-pro',
-  'claude-3-opus': 'openai/gpt-oss-120b',
-  'claude-3-sonnet': 'openai/gpt-oss-20b',
-  'gemini-pro': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',
+  'gpt-4': 'meta/llama-3.3-70b-instruct',
+  'gpt-3.5': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gpt-4-turbo': 'meta/llama-3.3-70b-instruct',
+  'gpt-4o': 'meta/llama-3.3-70b-instruct',
+  'claude-3-opus': 'meta/llama-3.3-70b-instruct',
+  'claude-3-sonnet': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gemini-pro': 'meta/llama-3.3-70b-instruct',
   'gemini-turbo': 'meta/llama-3.3-70b-instruct',
-  'gpt-3.5o': 'nvidia/nemotron-mini-4b-instruct',
-  'gpt-4-flash': 'deepseek-ai/deepseek-v4-flash',
-  'glm-5.2': 'z-ai/glm-5.2',
-  'mistral': 'mistralai/mistral-large-3-675b-instruct-2512',
-  'mistral-turbo': 'mistralai/mistral-medium-3.5-128b',
-  'mistral-pro': 'mistralai/mistral-small-4-119b-2603',
-  'mistral-nemo': 'mistralai/mistral-nemotron',
-  'mistral-fast': 'mistralai/ministral-14b-instruct-2512',
-  'google-light': 'google/gemma-4-31b-it',
-  'google-lightest': 'google/gemma-2-2b-it',
-  'google-lighter': 'google/gemma-3n-e4b-it',
-  'm2.7': 'minimaxai/minimax-m2.7',
-  'm3': 'minimaxai/minimax-m3',
-  'step-3.5-flash': 'stepfun-ai/step-3.5-flash',
-  'step-3.7-flash': 'stepfun-ai/step-3.7-flash'
+  'gpt-3.5o': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gpt-4-flash': 'google/gemma-4-31b-it',
+  'glm-5.2': 'google/gemma-4-31b-it',
+  'mistral': 'meta/llama-3.3-70b-instruct',
+  'mistral-turbo': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'google-light': 'google/gemma-4-31b-it'
 };
 
 const FALLBACK_MODELS = [
-  'mistralai/mistral-medium-3.5-128b',
-  'mistralai/mistral-small-4-119b-2603',
+  'meta/llama-3.3-70b-instruct',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'google/gemma-4-31b-it'
 ];
+
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
 
