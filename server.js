@@ -1,8 +1,4 @@
-// server.js — Robust Hybrid OpenAI ↔ NIM Proxy  (FIEL v3.0 — "rápido pero fiel")
-// Express 5 Compatible
-// Performance port from "Rapido": keep-alive agent, model cooldowns, de-duped chain.
-// Fidelity kept: Fiel's MODEL_MAPPING (smart models) + forward ALL client fields.
-
+// server.js — Robust Hybrid OpenAI ↔ NIM Proxy (FIEL v3.0 — Veloz, Fiel y con Modelos Activos)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -33,9 +29,6 @@ if (SHOW_REASONING) console.log('[CONFIG] Reasoning display: ENABLED');
 if (ENABLE_THINKING_MODE) console.log('[CONFIG] Thinking mode: ENABLED');
 
 // ─── PERF: Shared keep-alive agent (connection reuse) ────────────────────────
-// This is THE main speed win vs the old Fiel: without it, every request pays a
-// fresh TCP + TLS handshake to NIM. With it, connections are reused across
-// requests for the life of the process.
 const keepAliveAgent = new https.Agent({
   keepAlive: true,
   maxSockets: 50,
@@ -51,9 +44,7 @@ const nim = axios.create({
 
 function validateConfig() {
   const fatal = (msg) => { console.error(`[FATAL] ${msg}`); process.exit(1); };
-
   if (!NIM_API_KEY) fatal('NIM_API_KEY is required. Get one at https://build.nvidia.com/');
-
   if (!CLIENT_AUTH_KEY) {
     console.warn('[WARN] CLIENT_AUTH_KEY not set. All requests will be rejected with 403.');
   }
@@ -61,36 +52,32 @@ function validateConfig() {
 
 validateConfig();
 
-// ─── Model Mapping (FIEl — DO NOT swap for "fast" models) ────────────────────
-// This mapping is what makes the server faithful. Speed comes from the plumbing,
-// not from dumbing down the models.
-
-// ─── Model Mapping (Modelos estables y activos) ────────────────────────────
+// ─── Model Mapping (Mapeo actualizado con modelos activos de tu lista) ───────
 
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',
-  'gpt-4': 'meta/llama-3.3-70b-instruct',
-  'gpt-3.5': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gpt-4-turbo': 'meta/llama-3.3-70b-instruct',
-  'gpt-4o': 'meta/llama-3.3-70b-instruct',
-  'claude-3-opus': 'meta/llama-3.3-70b-instruct',
-  'claude-3-sonnet': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gemini-pro': 'meta/llama-3.3-70b-instruct',
-  'gemini-turbo': 'meta/llama-3.3-70b-instruct',
-  'gpt-3.5o': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gpt-4-flash': 'google/gemma-4-31b-it',
-  'glm-5.2': 'google/gemma-4-31b-it',
-  'mistral': 'meta/llama-3.3-70b-instruct',
-  'mistral-turbo': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'google-light': 'google/gemma-4-31b-it'
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  'gpt-4': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  'gpt-3.5': 'google/gemma-4-31b-it',
+  'gpt-4-turbo': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  'gpt-4o': 'stepfun-ai/step-5-preview',
+  'claude-3-opus': 'google/diffusiongemma-26b-a4b-it',
+  'claude-3-sonnet': 'openai/gpt-oss-20b',
+  'gemini-pro': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  'gemini-turbo': 'nvidia/llama3-chatqa-1.5-70b',
+  'mistral': 'mistralai/mistral-large-2-instruct',
+  'mistral-turbo': 'nv-mistralai/mistral-nemo-12b-instruct',
+  'mistral-pro': 'mistralai/mistral-7b-instruct-v0.3',
+  'google-light': 'google/gemma-4-31b-it',
+  'glm-5.3': 'z-ai/glm-5.3',
+  'kimi-k2.6': 'moonshotai/kimi-k2.6'
 };
 
 const FALLBACK_MODELS = [
-  'meta/llama-3.3-70b-instruct',
-  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'google/gemma-4-31b-it'
+  'nvidia/llama-3.1-nemotron-70b-instruct',
+  'google/gemma-4-31b-it',
+  'mistralai/mistral-large-2-instruct',
+  'moonshotai/kimi-k2.6'
 ];
-
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
 
@@ -185,7 +172,6 @@ async function validateModels() {
 
   } catch (err) {
     console.warn(`[VALIDATION] /v1/models endpoint failed: ${err.message}. Skipping validation.`);
-    console.warn('[VALIDATION] Consider setting SKIP_VALIDATION=true if your NIM provider lacks a model listing endpoint.');
   }
 }
 
@@ -209,7 +195,6 @@ async function sendDiscordAlert(invalidModels) {
       embeds: [embed],
       username: 'NIM Proxy Monitor'
     }, { timeout: 5000 });
-    console.log('[DISCORD] Alert sent.');
   } catch (err) {
     console.error('[DISCORD] Failed to send alert:', err.message);
   }
@@ -230,10 +215,7 @@ function safeWrite(res, data) {
 }
 
 // ─── PERF: Fallback chain with cooldowns + de-dupe ──────────────────────────
-// Without cooldowns, a 403/429 model gets retried on EVERY request, burning
-// seconds per call. With de-dupe, a model that is both primary and fallback
-// is never attempted twice.
-const modelCooldowns = new Map(); // model -> timestamp (ms) until which to skip it
+const modelCooldowns = new Map();
 
 const RATE_LIMIT_COOLDOWN_MS = Number(process.env.RATE_LIMIT_COOLDOWN_MS) || 30000;
 const ACCESS_DENIED_COOLDOWN_MS = Number(process.env.ACCESS_DENIED_COOLDOWN_MS) || 300000;
@@ -250,7 +232,6 @@ function setCooldown(model, ms) {
 async function callWithFallback(baseRequest, models) {
   let lastError = null;
 
-  // Skip cooling-down models; fall back to the full list if that empties the chain.
   const activeModels = models.filter(m => !isInCooldown(m));
   const attemptOrder = activeModels.length > 0 ? activeModels : models;
 
@@ -281,20 +262,9 @@ async function callWithFallback(baseRequest, models) {
         err.response?.data?.error?.message || err.message
       );
 
-      // Same key for every attempt: a 401 means every remaining model would fail identically.
-      if (status === 401) {
-        throw err;
-      }
-
-      // 403: access-tier issue for THIS model only — cooldown just this one.
-      if (status === 403) {
-        setCooldown(model, ACCESS_DENIED_COOLDOWN_MS);
-      }
-
-      // 429: rate limited — short cooldown.
-      if (status === 429) {
-        setCooldown(model, RATE_LIMIT_COOLDOWN_MS);
-      }
+      if (status === 401) throw err;
+      if (status === 403) setCooldown(model, ACCESS_DENIED_COOLDOWN_MS);
+      if (status === 429) setCooldown(model, RATE_LIMIT_COOLDOWN_MS);
     }
   }
 
@@ -304,7 +274,7 @@ async function callWithFallback(baseRequest, models) {
 // ─── Routes ────────────────────────────────────────────────────────────────
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '3.0.0' });
+  res.json({ status: 'ok', version: '3.1.0-fiel' });
 });
 
 app.get('/v1/models', (req, res) => {
@@ -313,7 +283,7 @@ app.get('/v1/models', (req, res) => {
     data: Object.keys(MODEL_MAPPING).map(id => ({
       id,
       object: 'model',
-      created: Math.floor(Date.now() / 1000), // OpenAI spec expects Unix seconds
+      created: Math.floor(Date.now() / 1000),
       owned_by: 'nim-proxy'
     }))
   });
@@ -326,14 +296,10 @@ app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, max_tokens, temperature, stream } = req.body;
 
-    const primaryModel = MODEL_MAPPING[model] || 'nvidia/llama-3.3-nemotron-super-49b-v1.5';
-
-    // De-dupe: avoids retrying the same model twice if it's also in FALLBACK_MODELS.
+    const primaryModel = MODEL_MAPPING[model] || 'nvidia/llama-3.1-nemotron-70b-instruct';
     const modelChain = [...new Set([primaryModel, ...FALLBACK_MODELS])];
 
-    // FIDELITY: forward ALL client fields (tools, response_format, top_p,
-    // stop, seed, logit_bias...) instead of cherry-picking a few. Only
-    // `model` is dropped since it's replaced per-attempt by the chain.
+    // FIDELITY: forward ALL client fields intact so prompts and user messages are respected
     const { model: _droppedModel, ...forwardedFields } = req.body;
 
     const baseRequest = {
@@ -349,8 +315,6 @@ app.post('/v1/chat/completions', async (req, res) => {
     const { response, model: usedModel } = await callWithFallback(baseRequest, modelChain);
     upstreamStream = response.data;
     console.log('[PROXY] Model used:', usedModel);
-
-    const inlineReasoning = req.headers['x-reasoning-format'] === 'inline';
 
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -375,8 +339,6 @@ app.post('/v1/chat/completions', async (req, res) => {
       const processLine = (line) => {
         if (!line.startsWith('data: ')) return;
 
-        // Exact match (from Rapido): avoids false-positiving on model output
-        // that happens to contain the literal substring "[DONE]".
         if (line.trim() === 'data: [DONE]') {
           if (!doneSent) {
             safeWrite(res, 'data: [DONE]\n\n');
@@ -416,13 +378,6 @@ app.post('/v1/chat/completions', async (req, res) => {
 
         } catch (parseErr) {
           console.warn('[STREAM] Invalid JSON line:', line.slice(0, 100));
-          safeWrite(res, `data: ${JSON.stringify({
-            error: {
-              message: 'Upstream sent malformed chunk',
-              type: 'stream_parse_error',
-              details: line.slice(0, 100)
-            }
-          })}\n\n`);
         }
       };
 
@@ -430,13 +385,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         buffer += decoder.write(chunk);
 
         if (buffer.length > MAX_BUFFER_SIZE) {
-          console.error('[STREAM] Buffer overflow, destroying connection');
-          safeWrite(res, `data: ${JSON.stringify({
-            error: {
-              message: 'Stream buffer overflow',
-              type: 'stream_error'
-            }
-          })}\n\n`);
+          console.error('[STREAM] Buffer overflow');
           safeWrite(res, 'data: [DONE]\n\n');
           res.end();
           upstreamStream.destroy();
@@ -461,7 +410,6 @@ app.post('/v1/chat/completions', async (req, res) => {
           }
         }
 
-        // Close an inline <thinking> tag left open if the model was cut off mid-reasoning.
         if (SHOW_REASONING && reasoningOpen) {
           safeWrite(res, `data: ${JSON.stringify({ choices: [{ delta: { content: '\n</thinking>\n' } }] })}\n\n`);
           reasoningOpen = false;
@@ -480,14 +428,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       upstreamStream.on('error', err => {
         console.error('[STREAM] Upstream error:', err.message);
-
         if (!res.writableEnded) {
-          safeWrite(res, `data: ${JSON.stringify({
-            error: {
-              message: 'Stream interrupted by upstream error',
-              type: 'stream_error'
-            }
-          })}\n\n`);
           safeWrite(res, 'data: [DONE]\n\n');
           res.end();
         }
@@ -495,14 +436,8 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       req.on('close', () => {
-        const clientGone = req.destroyed || !res.writable;
-
-        if (!streamEndedCleanly && clientGone) {
-          console.warn('[STREAM] Client disconnected prematurely');
-        }
-
-        if (upstreamStream && !upstreamStream.destroyed && !streamEndedCleanly) {
-          upstreamStream.destroy();
+        if (!streamEndedCleanly && (req.destroyed || !res.writable)) {
+          if (upstreamStream && !upstreamStream.destroyed) upstreamStream.destroy();
         }
         cleanup();
       });
@@ -517,8 +452,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           let content = choice.message?.content || '';
 
           if (SHOW_REASONING && choice.message?.reasoning_content) {
-            const reasoning = choice.message.reasoning_content;
-            content = `<thinking>\n${reasoning}\n</thinking>\n\n${content}`;
+            content = `<thinking>\n${choice.message.reasoning_content}\n</thinking>\n\n${content}`;
           }
 
           return {
@@ -543,25 +477,12 @@ app.post('/v1/chat/completions', async (req, res) => {
 
   } catch (error) {
     console.error('[PROXY] Fatal error:', error.message);
-    console.error('[PROXY] NIM response:', error.response?.data);
-
     if (!res.headersSent) {
-      // Force JSON in case the streaming branch already set text/event-stream.
       res.set('Content-Type', 'application/json');
       res.status(error.response?.status || 500).json({
-        error: {
-          message: error.message,
-          type: 'invalid_request_error',
-          code: error.response?.status || 500
-        }
+        error: { message: error.message, type: 'invalid_request_error', code: error.response?.status || 500 }
       });
     } else if (!res.writableEnded) {
-      safeWrite(res, `data: ${JSON.stringify({
-        error: {
-          message: error.message,
-          type: 'proxy_error'
-        }
-      })}\n\n`);
       safeWrite(res, 'data: [DONE]\n\n');
       res.end();
     }
@@ -573,21 +494,11 @@ app.post('/v1/chat/completions', async (req, res) => {
 });
 
 app.use((req, res) => {
-  res.status(404).json({
-    error: {
-      message: `Endpoint ${req.method} ${req.path} not found`,
-      type: 'invalid_request_error',
-      code: 404
-    }
-  });
+  res.status(404).json({ error: { message: 'Not found', type: 'invalid_request_error', code: 404 } });
 });
 
-// ─── Startup ───────────────────────────────────────────────────────────────
-
 app.listen(PORT, () => {
-  console.log(`[PROXY] Fiel v3.0 running on port ${PORT} (keep-alive + cooldowns enabled)`);
-  console.log(`[PROXY] Max tokens limit: ${MAX_TOKENS_LIMIT}`);
-
+  console.log(`[PROXY] Fiel v3.1 running on port ${PORT} (Keep-Alive + Cooldowns + Active Models)`);
   validateModels().catch(err => {
     console.error('[VALIDATION] Startup check failed:', err.message);
   });
